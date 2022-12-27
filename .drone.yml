@@ -1,0 +1,58 @@
+name: npm s3
+kind: pipeline
+type: docker
+
+steps:
+  - name: restore-cache
+    image: meltwater/drone-cache
+    pull: true
+    settings:
+        access-key:
+            from_secret: access-key
+        secret-key:
+            from_secret: secret-key
+    restore: true
+    bucket: test
+    region: hz
+    endpoint: https://s3.testdoc.cn
+    mount:
+        - 'node_modules'
+
+  - name: npm install
+    image: node
+    commands:
+    - npm install
+    - npm build
+
+  - name: docker
+    image: plugins/docker
+    settings:
+        username:
+            from_secret: docker_username
+        password:
+            from_secret: docker_password
+        repo: registry.cn-hangzhou.aliyuncs.com/mj520/k8s-test:test
+        registry: registry.cn-hangzhou.aliyuncs.com
+        mirror: https://r1w81y9g.mirror.aliyuncs.com
+        use_cache: true
+        custom_dns: 223.5.5.5
+        volumes:
+            - name: cache
+              path: /tmp/cache
+
+  - name: rebuild-cache
+    image: meltwater/drone-cache
+    pull: true
+    settings:
+        access-key:
+            from_secret: aws_access_key_id
+        secret-key:
+            from_secret: aws_secret_access_key
+    rebuild: true
+    bucket: test
+    region: hz
+    endpoint: https://s3.testdoc.cn
+    mount:
+        - 'node_modules'
+    
+

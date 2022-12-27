@@ -1,0 +1,263 @@
+variables:
+  ALI_HZ_IMAGE: registry.cn-hangzhou.aliyuncs.com/domai/$CI_PROJECT_NAMESPACE-$CI_PROJECT_NAME:$CI_COMMIT_SHORT_SHA
+  IMAGE_NAME: harbor.duomai.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME:$CI_COMMIT_REF_NAME
+  REF_IMAGE_NAME: registry.cn-hangzhou.aliyuncs.com/domai/$CI_PROJECT_NAMESPACE-$CI_PROJECT_NAME:$CI_COMMIT_REF_NAME
+  NODE_MODULES_CACHE_KEY: $CI_PROJECT_NAMESPACE:$CI_PROJECT_NAME:$CI_COMMIT_REF_NAME:node_modules
+
+stages:
+  # - npm-install
+  # - npm-build
+  - preInstall
+  - install
+  - build
+  - deploy
+
+#----------------------------------------------------------OaAuth_Aliyun---------------------------------------------------------
+
+# npm-install:
+#   stage: npm-install
+#   image: harbor.duomai.com/tool/npm:master
+#   script:
+#     - npm i
+#   only:
+#     changes:
+#       - package.json
+#   cache:
+#     key: $NODE_MODULES_CACHE_KEY
+#     policy: push
+#     paths:
+#       - node_modules
+#   tags:
+#     - dm03
+
+# auth-npm-build:
+#   stage: npm-build
+#   image: harbor.duomai.com/tool/npm:master
+#   cache:
+#     key: $NODE_MODULES_CACHE_KEY
+#     policy: pull
+#     paths:
+#       - node_modules
+#   only:
+#     - oaAuth
+#   script:
+#     - npm run build:pro
+#   tags:
+#     - dm03
+#   artifacts:
+#     paths:
+#       - dist/
+
+
+preInstall-job:
+  stage: preInstall
+  image: harbor.duomai.com/tool/yarn:v1
+  cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+      - yarn.lock
+    policy: push
+  only:
+    refs:
+      - release
+    changes:
+      - package.json
+      - .gitlab-ci.yml
+
+  script:
+    - yarn install
+
+install-online:
+  stage: install
+  image: harbor.duomai.com/tool/yarn:v1
+  variables:
+    IS_CI: 1
+  cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+      - yarn.lock
+      - src/.umi/.cache/
+      - src/.umi-production/.cache/
+    policy: pull-push
+  only:
+      - release
+  script:
+    # 当缓存存在时不需要install
+    - if [ ! -d "./node_modules/" ];then   yarn install;   else   ls -alh; fi
+    - yarn build:pro
+  artifacts:
+    paths:
+      - dist/
+
+oaAuth-build-image:
+  stage: build
+  image: harbor.duomai.com/tool/docker:latest
+  only:
+    - release
+  script:
+    - docker build -t $ALI_HZ_IMAGE .
+    - docker push $ALI_HZ_IMAGE
+    - docker tag $ALI_HZ_IMAGE $REF_IMAGE_NAME
+    - docker push $REF_IMAGE_NAME
+
+
+oaAuth-deploy-company:
+  stage: deploy
+  image: harbor.duomai.com/kubematrix/cli:v1
+  only:
+    - release
+  script:
+    - matrix workloads deploy --cluster aliyun-hz --image $ALI_HZ_IMAGE --ports 80 --namespace cps-mesh $CI_PROJECT_NAME --notify-webhook https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=e31992e8-93ee-4047-81b1-a789cd344d88
+  #when: manual
+
+
+
+#----------------------------------------------------------Opt_Company-----------------------------------------------------------
+
+preInstall-job-test:
+  stage: preInstall
+  image: harbor.duomai.com/tool/yarn:v1
+  cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+      - yarn.lock
+    policy: push
+  only:
+    refs:
+      - test
+    changes:
+      - package.json
+      - .gitlab-ci.yml
+  script:
+    - yarn install
+
+install-online-test:
+  stage: install
+  image: harbor.duomai.com/tool/yarn:v1
+  variables:
+    IS_CI: 1
+  cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+      - yarn.lock
+      - src/.umi/.cache/
+      - src/.umi-production/.cache/
+    policy: pull-push
+  only:
+    - test
+  script:
+    # 当缓存存在时不需要install
+    - if [ ! -d "./node_modules/" ];then   yarn install;   else   ls -alh; fi
+    - yarn build:dev
+  artifacts:
+    paths:
+      - dist/
+
+opt-build-image:
+  stage: build
+  image: harbor.duomai.com/tool/docker:latest
+  only:
+    - test
+  script:
+    - docker build -t $IMAGE_NAME .
+    - docker push $IMAGE_NAME
+opt-deploy-company:
+  stage: deploy
+  image: harbor.duomai.com/kubematrix/cli:v1
+  only:
+    - test
+  script:
+    # 自动拦截流量版本的部署
+    - matrix workloads deploy --cluster company --image $IMAGE_NAME --ports 80 --namespace cps-mesh $CI_PROJECT_NAME
+
+
+#----------------------------------------------------------dmd_Company-----------------------------------------------------------
+
+dmd-build-image:
+  stage: build
+  image: harbor.duomai.com/tool/docker:latest
+  only:
+    - dmd-component
+  script:
+    - docker build -t $IMAGE_NAME .
+    - docker push $IMAGE_NAME
+
+dmd-deploy-company:
+  stage: deploy
+  image: harbor.duomai.com/kubematrix/cli:v1
+  only:
+    - dmd-component
+  script:
+    # 自动拦截流量版本的部署
+    - matrix workloads deploy --cluster company --image $IMAGE_NAME --ports 80 --namespace cps-mesh $CI_PROJECT_NAME-component
+
+
+#----------------------------------------------------------dmd_Company-----------------------------------------------------------
+
+preInstall-job-pre:
+  stage: preInstall
+  image: harbor.duomai.com/tool/yarn:v1
+  cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+      - yarn.lock
+    policy: push
+  only:
+    refs:
+      - pre_release
+    changes:
+      - package.json
+      - .gitlab-ci.yml
+  script:
+    - yarn install
+
+install-online-pre:
+  stage: install
+  image: harbor.duomai.com/tool/yarn:v1
+  variables:
+    IS_CI: 1
+  cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+      - yarn.lock
+      - src/.umi/.cache/
+      - src/.umi-production/.cache/
+    policy: pull-push
+  only:
+    - pre_release
+  script:
+    # 当缓存存在时不需要install
+    - if [ ! -d "./node_modules/" ];then   yarn install;   else   ls -alh; fi
+    - yarn build:pre
+  artifacts:
+    paths:
+      - dist/
+
+dmd-build-image:
+  stage: build
+  image: harbor.duomai.com/tool/docker:latest
+  only:
+    - pre_release
+  script:
+    - docker build -t $IMAGE_NAME .
+    - docker push $IMAGE_NAME
+
+dmd-deploy-company:
+  stage: deploy
+  image: harbor.duomai.com/kubematrix/cli:v1
+  only:
+    - pre_release
+  script:
+    # 自动拦截流量版本的部署
+    - matrix workloads deploy --cluster company --image $IMAGE_NAME --ports 80 --namespace cps-pre $CI_PROJECT_NAME
+    
+    
+
+
+
